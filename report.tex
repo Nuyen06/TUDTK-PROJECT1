@@ -1,0 +1,428 @@
+\documentclass[12pt, a4paper, twoside]{article}
+\usepackage{cmap}
+\usepackage[utf8]{vietnam}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{listingsutf8}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+
+\geometry{left=2cm, right=2cm, top=2cm, bottom=2cm}
+\setlength{\headheight}{17.97171pt}
+
+\lstset{
+    language=Python,
+    inputencoding=utf8,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    breaklines=true,
+    showstringspaces=false,
+    numberstyle=\tiny\color{gray},
+    numbers=left,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Báo cáo Toán Ứng Dụng và Thống Kê}
+\cfoot{\thepage}
+
+\title{\textbf{Báo Cáo Dự Án:\ \Huge Phần 3}}
+\author{Tên: Nguyễn Công Nguyên\\MSSV: 24120106 \\Môn: Toán ứng dụng và thống kê}
+\date{\vspace{-5mm}}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Giới Thiệu Dự Án}
+
+Phần 3 tập trung vào việc giải hệ phương trình tuyến tính $A\mathbf{x} = \mathbf{b}$ bằng ba hướng tiếp cận khác nhau:
+\begin{itemize}
+    \item Gaussian Elimination với chọn pivot từ Part 1
+    \item Cholesky Decomposition cho ma trận đối xứng xác định dương
+    \item Gauss-Seidel là phương pháp lặp
+\end{itemize}
+
+Mục tiêu của phần này không chỉ là tìm nghiệm mà còn so sánh tốc độ chạy, độ chính xác và mức ổn định số học giữa các phương pháp trên cùng một bộ dữ liệu. Từ đó có thể thấy rõ sự khác nhau giữa một phương pháp giải trực tiếp, một phương pháp phân rã tối ưu cho SPD, và một phương pháp lặp phụ thuộc vào tính chất hội tụ của ma trận.
+
+Tất cả các phép tính đều dùng kiểu \texttt{float} và ngưỡng sai số \texttt{EPS = 1e-12} để xử lý các so sánh với 0 một cách ổn định hơn.
+
+Trong phần cài đặt, \texttt{solvers.py} đóng vai trò là nơi chứa các hàm giải chính; \texttt{benchmark.py} dùng để đo thời gian và kiểm tra sai số; còn \texttt{analysis.ipynb} trình bày kết quả thực nghiệm một cách trực quan. Cấu trúc này giúp phần 3 vừa có khả năng tái sử dụng code từ Part 1 và Part 2, vừa có phần đánh giá thực nghiệm riêng.
+
+\section{Tổng Quan Cấu Trúc Dự Án}
+
+\subsection{Danh Sách File}
+\begin{itemize}
+    \item \texttt{solvers.py} - Cài đặt các solver chính và hàm hỗ trợ
+    \item \texttt{benchmark.py} - Đo thời gian chạy, residual và phân tích ổn định số
+    \item \texttt{analysis.ipynb} - Notebook trình bày kết quả thực nghiệm
+    \item \texttt{README.md} - Hướng dẫn tổng quan và mô tả các file
+\end{itemize}
+
+\subsection{Vai Trò Từng File}
+
+\begin{itemize}
+    \item \texttt{solvers.py}: triển khai thuật toán giải hệ, kiểm tra điều kiện áp dụng và tính residual.
+    \item \texttt{benchmark.py}: tạo dữ liệu kiểm thử, chạy benchmark theo nhiều kích thước, và sinh báo cáo ổn định số.
+    \item \texttt{analysis.ipynb}: minh họa đầu ra, bảng kết quả và đồ thị log-log để tiện đưa vào báo cáo.
+    \item \texttt{README.md}: mô tả ngắn gọn cách chạy chương trình và ý nghĩa của từng thành phần.
+\end{itemize}
+
+\subsection{Luồng Xử Lý}
+
+\begin{enumerate}
+    \item Tạo dữ liệu kiểm thử từ ma trận SPD hoặc ma trận Hilbert
+    \item Giải hệ bằng ba solver: Gaussian, Cholesky, Gauss-Seidel
+    \item Tính residual tương đối để đánh giá chất lượng nghiệm
+    \item Ghi nhận thời gian chạy và vẽ đồ thị log-log
+    \item So sánh độ ổn định số theo condition number
+\end{enumerate}
+
+Luồng này được thiết kế để cùng một bộ dữ liệu có thể dùng cho cả ba solver. Nhờ vậy kết quả benchmark mang tính so sánh trực tiếp, hạn chế sai lệch do thay đổi dữ liệu đầu vào giữa các phương pháp.
+
+\section{Các Thuật Toán Giải Hệ Phương Trình}
+
+\subsection{Khai Báo Kiểu Dữ Liệu và Hằng Số}
+
+Trong \texttt{solvers.py}, hai kiểu dữ liệu chính được định nghĩa là:
+\begin{itemize}
+    \item \texttt{Matrix = List[List[float]]}: ma trận hai chiều
+    \item \texttt{Vector = List[float]}: vector một chiều
+\end{itemize}
+
+Ngoài ra, \texttt{EPS = 1e-12} được dùng để kiểm tra các phần tử gần bằng 0. Cách làm này phù hợp với số thực dấu phẩy động vì so sánh đúng bằng 0 dễ gây lỗi do sai số làm tròn.
+
+\subsection{Các Hàm Hỗ Trợ}
+
+\paragraph{\texttt{copy\_matrix(A)}}
+Sao chép sâu ma trận đầu vào để tránh thay đổi dữ liệu gốc trong quá trình biến đổi.
+
+\paragraph{\texttt{validate\_system(A, b)}}
+Kiểm tra hệ phương trình có hợp lệ hay không:
+\begin{itemize}
+    \item ma trận $A$ không rỗng,
+    \item $A$ phải là ma trận vuông,
+    \item các hàng của $A$ phải có cùng số cột,
+    \item vector $b$ phải có độ dài bằng số hàng của $A$.
+\end{itemize}
+
+\paragraph{\texttt{is\_symmetric(A, tol)}}
+Kiểm tra tính đối xứng của ma trận bằng cách so sánh $a_{ij}$ và $a_{ji}$ theo một ngưỡng sai số.
+
+\paragraph{\texttt{norm2(v)}}
+Tính chuẩn Euclid của vector theo công thức:
+\[
+\|v\|_2 = \sqrt{\sum_i v_i^2}
+\]
+
+\paragraph{\texttt{mat\_vec\_mul(A, x)}}
+Nhân ma trận với vector để phục vụ việc tính residual.
+
+\paragraph{\texttt{relative\_residual(A, x, b)}}
+Tính sai số tương đối:
+\[
+\frac{\|A\mathbf{x} - \mathbf{b}\|_2}{\|\mathbf{b}\|_2}
+\]
+Nếu $\|\mathbf{b}\|_2$ quá nhỏ thì hàm trả về residual tuyệt đối để tránh chia cho số gần 0.
+
+\subsection{Gaussian Elimination Từ Part 1}
+
+Part 3 tái sử dụng trực tiếp hàm \texttt{gaussian\_eliminate} từ Part 1 thông qua nạp động trong \texttt{solvers.py}. Hàm \texttt{\_load\_part1\_gaussian\_eliminate()} tìm đúng thư mục Part 1, thêm đường dẫn vào \texttt{sys.path} nếu cần, rồi import module \texttt{gaussian}. Cách này giúp Part 3 không phải sao chép lại mã Gaussian nhưng vẫn dùng được phiên bản đã hoàn thiện ở Part 1.
+
+Hàm \texttt{gaussian\_solve\_part1(A, b)} có nhiệm vụ:
+\begin{itemize}
+    \item kiểm tra kích thước hệ phương trình,
+    \item gọi lại bộ khử Gauss đã hoàn thiện ở Part 1,
+    \item chuyển nghiệm từ \texttt{Fraction} sang \texttt{float} để dùng chung với phần benchmark.
+\end{itemize}
+
+Nếu Part 1 báo hệ vô nghiệm hoặc vô số nghiệm thì Part 3 sẽ ném ngoại lệ để báo rõ solver này không tạo được nghiệm số duy nhất cho benchmark.
+
+\subsection{Khử Gauss Có Chọn Pivot}
+
+Hàm \texttt{gaussian\_solve\_pp(A, b, eps)} là phiên bản khử Gauss tự cài trong Part 3 để giải hệ trực tiếp bằng pivot từng cột. Trình tự thực hiện gồm:
+\begin{enumerate}
+    \item Tạo ma trận tăng cường $[A \mid b]$.
+    \item Với mỗi cột, chọn hàng có trị tuyệt đối lớn nhất làm pivot.
+    \item Hoán đổi hàng nếu cần để đưa pivot tốt lên trên.
+    \item Khử các phần tử bên dưới pivot.
+    \item Thế ngược để thu được nghiệm cuối cùng.
+\end{enumerate}
+
+Số lần hoán đổi hàng được lưu lại trong biến \texttt{swaps} để dùng khi phân tích hiệu năng hoặc kiểm tra kết quả.
+
+\begin{lstlisting}
+x_gauss, info_gauss = gaussian_solve_part1(A, b)
+print(x_gauss, info_gauss)
+\end{lstlisting}
+
+\subsection{Cholesky Decomposition}
+
+Với ma trận đối xứng xác định dương, ta phân rã
+
+\[
+A = LL^T
+\]
+
+trong đó $L$ là ma trận tam giác dưới. Sau đó hệ $A\mathbf{x} = \mathbf{b}$ được giải qua hai bước:
+\begin{enumerate}
+    \item Giải $L\mathbf{y} = \mathbf{b}$ bằng thế tiến
+    \item Giải $L^T\mathbf{x} = \mathbf{y}$ bằng thế lùi
+\end{enumerate}
+
+Trong cài đặt, hàm \texttt{cholesky\_decomposition(A, eps)} kiểm tra ba điều kiện quan trọng:
+\begin{itemize}
+    \item ma trận phải vuông,
+    \item ma trận phải đối xứng,
+    \item các giá trị đường chéo phải dương đủ lớn để tránh suy biến.
+\end{itemize}
+
+Nếu các điều kiện này không thỏa, hàm sẽ báo lỗi vì Cholesky không áp dụng được. Sau khi có $L$, hàm \texttt{solve\_cholesky(A, b, eps)} lần lượt dùng thế tiến và thế lùi để tính nghiệm cuối cùng.
+
+Ưu điểm chính của phương pháp này là giảm số phép tính so với Gaussian tổng quát, miễn là đầu vào thỏa điều kiện SPD. Với ma trận SPD, Cholesky thường là lựa chọn hiệu quả hơn vì khai thác được tính đối xứng của bài toán.
+
+\begin{lstlisting}
+L = cholesky_decomposition(A)
+x_chol, info_chol = solve_cholesky(A, b)
+\end{lstlisting}
+
+\subsection{Thế Tiến và Thế Lùi}
+
+Hai hàm \texttt{forward\_substitution} và \texttt{back\_substitution} là nền tảng cho cả Cholesky lẫn các bước xử lý tam giác trong Gaussian. Chúng hoạt động theo nguyên tắc:
+\begin{itemize}
+    \item thế tiến: giải từ hàng trên xuống dưới,
+    \item thế lùi: giải từ hàng dưới lên trên.
+\end{itemize}
+
+Mỗi hàm đều kiểm tra phần tử đường chéo có gần bằng 0 hay không. Nếu gặp pivot quá nhỏ, hàm sẽ ném ngoại lệ để tránh chia cho số không hoặc tạo sai số số học lớn.
+
+\subsection{Gauss-Seidel}
+
+Gauss-Seidel là phương pháp lặp sử dụng giá trị mới ngay khi vừa được cập nhật. Công thức cập nhật cho biến $x_i$ là:
+
+\[
+x_i^{(k+1)} = \frac{1}{a_{ii}}\left(b_i - \sum_{j < i} a_{ij}x_j^{(k+1)} - \sum_{j > i} a_{ij}x_j^{(k)}\right)
+\]
+
+Điều kiện dừng được đặt theo sai khác vô cùng nhỏ nhất giữa hai lần lặp liên tiếp. Nếu ma trận chéo trội hàng nghiêm ngặt thì khả năng hội tụ thường tốt hơn.
+
+Trong cài đặt \texttt{gauss\_seidel(A, b, x0, tol, max\_iter, eps)}, chương trình:
+\begin{enumerate}
+    \item khởi tạo nghiệm ban đầu bằng vector 0 nếu không truyền vào \texttt{x0},
+    \item lặp cập nhật từng phần tử theo công thức Gauss-Seidel,
+    \item kiểm tra độ sai khác vô cùng nhỏ giữa hai vòng lặp,
+    \item dừng khi đạt sai số cho phép hoặc khi vượt quá số vòng lặp tối đa.
+\end{enumerate}
+
+Ngoài nghiệm, hàm còn trả về thông tin bổ sung gồm số vòng lặp, trạng thái hội tụ và việc ma trận có chéo trội hàng hay không. Điều này rất hữu ích trong phần benchmark và phân tích ổn định số.
+
+\subsection{Hàm Main}
+
+Khi chạy trực tiếp \texttt{solvers.py}, chương trình dùng một ma trận SPD mẫu:
+\[
+A = \begin{pmatrix}
+4 & 4 & 2\\
+4 & 8 & 6\\
+2 & 6 & 9
+\end{pmatrix}, \qquad
+b = \begin{pmatrix} 14 \\ 26 \\ 23 \end{pmatrix}
+\]
+
+Sau đó nó lần lượt chạy Gaussian, Cholesky và Gauss-Seidel rồi in nghiệm cùng residual tương đối để đối chiếu trực tiếp giữa ba phương pháp.
+
+\begin{lstlisting}
+x_gs, info_gs = gauss_seidel(A, b, tol=1e-10)
+print(x_gs, info_gs)
+\end{lstlisting}
+
+\section{Phân Tích Hiệu Năng}
+
+\subsection{Bộ Sinh Dữ Liệu}
+
+File \texttt{benchmark.py} tạo ma trận SPD bằng công thức
+
+\[
+A = R^T R + nI
+\]
+
+với $R$ là ma trận ngẫu nhiên. Cách này giúp tạo ra ma trận có tính đối xứng và xác định dương rõ ràng, phù hợp để so sánh công bằng giữa Gaussian, Cholesky và Gauss-Seidel.
+
+Vector vế phải $\mathbf{b}$ cũng được sinh ngẫu nhiên để tránh trường hợp dữ liệu quá đều hoặc quá đặc biệt.
+
+Ngoài ra, file này còn cung cấp thêm một bộ dữ liệu đặc biệt là ma trận Hilbert, vốn có condition number rất lớn. Điều này giúp phần benchmark không chỉ đo tốc độ mà còn kiểm tra tính ổn định số học trong trường hợp xấu.
+
+\subsection{Các Hàm Sinh Dữ Liệu}
+
+\paragraph{\texttt{make\_spd\_matrix(n, seed)}}
+Sinh một ma trận SPD bằng cách lấy $R^TR + nI$. Hàm này đảm bảo ma trận tạo ra đối xứng và xác định dương, phù hợp cho Gaussian, Cholesky và Gauss-Seidel.
+
+\paragraph{\texttt{make\_random\_vector(n, seed)}}
+Sinh vector ngẫu nhiên trong khoảng $[-1, 1]$ để làm vế phải $\mathbf{b}$.
+
+\paragraph{\texttt{hilbert\_matrix(n)}}
+Tạo ma trận Hilbert với phần tử $h_{ij} = \frac{1}{i+j+1}$. Đây là ví dụ điển hình cho bài toán điều kiện kém.
+
+\paragraph{\texttt{make\_spd\_matrix\_fixed(n, seed)}}
+Là một wrapper có tên rõ nghĩa hơn để dùng trong case study ổn định số.
+
+\paragraph{\texttt{mean(values)}}
+Tính trung bình của một danh sách số thực. Nếu danh sách rỗng, hàm trả về \texttt{nan} để tránh lỗi chia cho 0.
+
+\subsection{Đo Thời Gian và Residual}
+
+Hàm \texttt{time\_one\_run()} đo thời gian chạy của từng solver bằng \texttt{time.perf\_counter()} và tính residual tương đối:
+
+\[
+\frac{\|A\mathbf{x} - \mathbf{b}\|_2}{\|\mathbf{b}\|_2}
+\]
+
+Residual nhỏ cho thấy nghiệm thu được khớp tốt với hệ ban đầu. Đây là chỉ số quan trọng để so sánh độ chính xác giữa các phương pháp, đặc biệt khi kích thước ma trận tăng.
+
+Hàm này hỗ trợ ba chế độ chạy:
+\begin{itemize}
+    \item \texttt{gauss\_part1}: gọi Gaussian từ Part 1,
+    \item \texttt{cholesky}: gọi solver Cholesky,
+    \item \texttt{gauss\_seidel}: gọi solver lặp Gauss-Seidel.
+\end{itemize}
+
+Kết quả trả về gồm thời gian chạy, residual và một từ điển thông tin bổ sung để phục vụ cho các báo cáo tiếp theo.
+
+\subsection{Benchmark Nhiều Kích Thước}
+
+Hàm \texttt{benchmark\_sizes(sizes, repeats, base\_seed)} chạy benchmark cho nhiều kích thước khác nhau và nhiều lần lặp. Cách làm này giúp giảm nhiễu trong đo thời gian và cho phép lấy giá trị trung bình ổn định hơn.
+
+Mỗi kích thước $n$ sẽ sinh một ma trận SPD và một vector $b$ cố định, sau đó cả ba phương pháp sẽ dùng cùng dữ liệu này để bảo đảm tính công bằng.
+
+Kết quả thu được cho mỗi phương pháp gồm:
+\begin{itemize}
+    \item \texttt{time\_avg}: thời gian trung bình,
+    \item \texttt{residual\_avg}: residual trung bình,
+    \item \texttt{converged\_ratio}: tỷ lệ hội tụ của Gauss-Seidel,
+    \item \texttt{iter\_avg}: số vòng lặp trung bình của Gauss-Seidel.
+\end{itemize}
+
+\subsection{Bảng Kết Quả}
+
+Hàm \texttt{print\_result\_table()} in kết quả benchmark dưới dạng bảng văn bản để tiện chép vào báo cáo. Bảng này cho phép so sánh trực tiếp giữa thời gian, residual và số vòng lặp trên từng kích thước ma trận.
+
+\subsection{So Sánh Log-Log}
+
+Hàm \texttt{plot\_runtime\_loglog()} vẽ thời gian chạy theo thang log-log và kèm một đường tham chiếu $O(n^3)$. Nhờ đó có thể quan sát xu hướng tăng độ phức tạp khi kích thước ma trận lớn dần.
+
+\begin{itemize}
+    \item Gaussian và Cholesky thường có xu hướng tăng gần bậc ba theo kích thước
+    \item Gauss-Seidel phụ thuộc mạnh vào số vòng lặp hội tụ
+    \item Ở các bài toán SPD tốt, Cholesky thường cho hiệu năng tốt hơn Gaussian tổng quát
+\end{itemize}
+
+Đồ thị log-log đặc biệt hữu ích vì nếu đường thực nghiệm gần song song với đường tham chiếu $O(n^3)$ thì có thể suy ra phương pháp đó có xu hướng tăng theo bậc ba, đúng với kỳ vọng lý thuyết của khử ma trận trực tiếp.
+
+\section{Phân Tích Ổn Định Số Học}
+
+\subsection{Condition Number}
+
+Một ma trận có số điều kiện lớn sẽ dễ khuếch đại sai số làm tròn. Trong phần này, \texttt{condition\_number\_2()} dùng \texttt{numpy.linalg.cond(A, 2)} để ước lượng:
+
+\[
+\kappa(A) = \frac{\sigma_{\max}}{\sigma_{\min}}
+\]
+
+Giá trị $\kappa(A)$ càng lớn thì bài toán càng nhạy với sai số số học.
+
+Trong thực nghiệm, condition number được dùng như một chỉ báo để đánh giá mức độ “khó” của bài toán. Nếu $\kappa(A)$ tăng mạnh, các solver có thể vẫn chạy được nhưng residual có thể xấu đi rõ rệt.
+
+\subsection{Case Study: Hilbert và SPD}
+
+Hàm \texttt{stability\_case\_study()} so sánh hai nhóm ma trận:
+\begin{itemize}
+    \item Hilbert matrix: nổi tiếng là điều kiện rất xấu
+    \item SPD ngẫu nhiên: thường ổn định hơn đáng kể
+\end{itemize}
+
+Với mỗi kích thước $n$, báo cáo ghi lại:
+\begin{itemize}
+    \item condition number $\kappa(A)$
+    \item residual của Gaussian, Cholesky và Gauss-Seidel
+    \item trạng thái hội tụ của Gauss-Seidel
+\end{itemize}
+
+Hàm \texttt{print\_stability\_report()} sau đó in báo cáo theo từng kích thước $n$, giúp quan sát trực tiếp mối liên hệ giữa độ lớn của $\kappa(A)$ và chất lượng nghiệm thu được.
+
+\begin{lstlisting}
+report = stability_case_study(ns=[5, 8, 10], seed=42)
+print_stability_report(report)
+\end{lstlisting}
+
+\subsection{Ý Nghĩa Thực Nghiệm}
+
+Kết quả thực nghiệm cho thấy khi condition number tăng mạnh, residual có thể xấu đi rõ rệt dù thuật toán về mặt lý thuyết vẫn đúng. Đây là lý do phần 3 không chỉ tập trung vào nghiệm mà còn đặt nặng tiêu chí ổn định số.
+
+Điều này cũng giải thích vì sao cùng là một hệ tuyến tính, nhưng các solver khác nhau có thể cho ra độ tin cậy khác nhau trong thực tế. Với bài toán điều kiện tốt, mọi phương pháp đều có kết quả khá gần nhau; ngược lại, với ma trận điều kiện xấu như Hilbert, sai số số học có thể lộ rõ hơn nhiều.
+
+\section{Kiểm Chứng và Báo Cáo Thực Nghiệm}
+
+\subsection{Notebook analysis.ipynb}
+
+Notebook \texttt{analysis.ipynb} là nơi trình bày kết quả thực nghiệm theo từng bước. Cấu trúc notebook gồm các phần chính sau:
+\begin{itemize}
+    \item giới thiệu mục tiêu của Part 3,
+    \item kiểm tra nhanh độ đúng của ba solver trên bộ dữ liệu SPD mẫu,
+    \item chạy benchmark theo nhiều kích thước,
+    \item vẽ đồ thị log-log,
+    \item phân tích ổn định số với Hilbert và SPD.
+\end{itemize}
+
+\subsection{Nội Dung Từng Cell}
+
+\paragraph{Cell giới thiệu}
+Mô tả mục tiêu thực nghiệm và các solver sẽ được so sánh.
+
+\paragraph{Cell import module}
+Nạp các hàm từ \texttt{solvers.py} và \texttt{benchmark.py}, đồng thời cấu hình hiển thị của matplotlib.
+
+\paragraph{Cell kiểm tra nhanh}
+Chạy ba solver trên cùng một ma trận SPD để xác nhận nghiệm có độ khớp tốt.
+
+\paragraph{Cell benchmark}
+Gọi \texttt{benchmark\_sizes()} với danh sách kích thước lớn hơn để đo hiệu năng.
+
+\paragraph{Cell vẽ đồ thị}
+Hiển thị đường thời gian chạy trên thang log-log để quan sát độ phức tạp.
+
+\paragraph{Cell ổn định số}
+Chạy \texttt{stability\_case\_study()} và in báo cáo cho Hilbert vs SPD.
+
+\paragraph{Cell kết luận}
+Tóm tắt các quan sát chính từ quá trình thực nghiệm.
+
+\subsection{Ý Nghĩa Của Notebook}
+
+Notebook đóng vai trò cầu nối giữa code và báo cáo: các bảng số liệu, residual và đồ thị đều có thể lấy trực tiếp từ notebook để minh họa trong phần thuyết minh. Cách trình bày này giúp kết quả rõ ràng, tái lập được và dễ kiểm chứng.
+
+\section{Kết Luận}
+
+Phần 3 hoàn thiện một bộ công cụ giải hệ phương trình tuyến tính bằng ba hướng tiếp cận khác nhau. Gaussian cho khả năng xử lý tổng quát, Cholesky tối ưu cho ma trận SPD, còn Gauss-Seidel phù hợp với bài toán lặp và phân tích hội tụ.
+
+Từ góc nhìn thực nghiệm, phần này cho thấy ba ý chính:
+\begin{itemize}
+    \item có thể tái sử dụng trực tiếp code từ Part 1 để giải quyết các bài toán lớn hơn;
+    \item benchmark không chỉ đo tốc độ mà còn cần xét residual và điều kiện hội tụ;
+    \item condition number là yếu tố quan trọng quyết định độ ổn định của nghiệm số.
+\end{itemize}
+
+Từ các phép benchmark và case study ổn định số, có thể rút ra ba nhận xét chính:
+\begin{itemize}
+    \item Cholesky thường là lựa chọn hiệu quả khi ma trận thỏa điều kiện SPD
+    \item Gauss-Seidel có thể hội tụ tốt trên ma trận phù hợp nhưng không phải lúc nào cũng đảm bảo
+    \item Condition number là chỉ báo quan trọng để dự đoán mức độ sai số thực tế
+\end{itemize}
+
+\end{document}
